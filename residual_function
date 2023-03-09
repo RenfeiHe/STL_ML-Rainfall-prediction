@@ -1,0 +1,105 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from sklearn.metrics import r2_score
+from sklearn.model_selection import train_test_split
+import lightgbm as lgb
+from statsmodels.tsa import stattools
+from sklearn.model_selection import GridSearchCV
+
+def create_index_set_LGB(residual_data,test_size,feat_data,past_index): 
+
+    train_size = len(residual_data)- past_index.max() - test_size
+    
+    X_train = np.zeros((train_size,feat_data.shape[1]+len(past_index)))
+    Y_train = np.zeros((train_size,))
+    X_test = np.zeros((test_size,feat_data.shape[1]+len(past_index)))
+    Y_test = np.zeros((test_size,))
+    
+    for i in range(past_index.max(),past_index.max()+train_size):  
+        Y_train[i-past_index.max()]=residual_data[i]
+        X_train[i-past_index.max(),0:feat_data.shape[1]]= feat_data[i-1]
+        for j in range(len(past_index)):
+            X_train[i-past_index.max(),feat_data.shape[1]+j]=residual_data[i-past_index[j]]
+     
+    for i in range(past_index.max()+train_size,len(residual_data)):
+        Y_test[i-past_index.max()-train_size]=residual_data[i]
+        X_test[i-past_index.max()-train_size,0:feat_data.shape[1]]=feat_data[i-1]
+        for j in range(len(past_index)):
+            X_test[i-past_index.max()-train_size,feat_data.shape[1]+j]=residual_data[i-past_index[j]]
+       
+    return X_train,Y_train,X_test,Y_test
+
+
+def residual_learning(residual_data,test_size,feat_data):
+    
+    top = 20
+    residacf=stattools.acf(residual_data[0:-test_size],nlags=3000) 
+    aaa=abs(residacf)
+    past_indexa = aaa.argsort()[-(top+1):]
+    past_indexa = past_indexa[0:-1]
+    
+    
+    X_train_LGB,Y_train_LGB,X_test_LGB,Y_test_LGB=create_index_set_LGB(residual_data,test_size,feat_data,past_indexa)
+    X_tr_lgb,X_va_lgb,y_tr_lgb,y_va_lgb =train_test_split(X_train_LGB,Y_train_LGB,test_size=0.222)
+
+
+
+    lgb_train = lgb.Dataset(X_tr_lgb, y_tr_lgb) 
+    lgb_valid = lgb.Dataset(X_va_lgb, y_va_lgb, reference=lgb_train)  
+
+    params = {
+        'task': 'train',
+        'boosting_type': 'gbdt',  
+        'objective': 'regression', 
+        'metric': {'l2' },  
+        'num_leaves': 128,   
+        'max_depth': 16,   
+        'learning_rate': 0.1,  
+        'feature_fraction': 1, 
+        'bagging_fraction': 0.8, 
+        'bagging_freq': 5,  
+        'verbose': 1,    
+        'num_threads': 4,
+        'min_data_in_leaf': 16 
+         }
+    print('Start training...')
+   
+    gbm = lgb.train(params,lgb_train,num_boost_round=4000,valid_sets=lgb_valid,early_stopping_rounds=500) 
+    print('Save model...') 
+    gbm.save_model('model.txt')   
+    print('Start predicting...')
+
+    residual_test_pred = gbm.predict(X_test_LGB, num_iteration=gbm.best_iteration)
+    
+    residual_test_pred = residual_test_pred.reshape(test_size,1)
+
+    R2_test= r2_score(Y_test_LGB,residual_test_pred)
+    print(f'Residual Test set R2: {R2_test}')
+    
+    importance = gbm.feature_importance(importance_type='split')
+    names = gbm.feature_name()
+   
+    lgb.plot_importance(gbm, max_num_features=30)
+    plt.show()
+    
+    plt.figure(5)
+    plt.scatter(residual_test_pred,Y_test_LGB, marker = '+', color = 'blue', s = 40)
+    plt.plot(np.array([0,20]),np.array([0,20]))
+    plt.xlabel('pred')
+    plt.ylabel('true')
+    
+    y_trainpred = gbm.predict(X_train_LGB, num_iteration=gbm.best_iteration)
+    plt.figure(6)
+    plt.scatter(y_trainpred,Y_train_LGB, marker = '+', color = 'blue', s = 40)
+    plt.plot(np.array([0,30]),np.array([0,30]))
+    plt.xlabel('pred')
+    plt.ylabel('true')
+    R2_train=r2_score(Y_train_LGB,y_trainpred)
+    print(f'Residual Train set R2: {R2_train}')
+    residual_test_pred=residual_test_pred.reshape(test_size,)
+    return residual_test_pred,R2_test,importance,names,past_indexa
+    
+    
+    
+
