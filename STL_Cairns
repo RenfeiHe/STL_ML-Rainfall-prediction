@@ -4,7 +4,7 @@ import numpy as np
 from statsmodels.tsa.seasonal import STL
 from trend_function import trend_learning
 from seasonal_function import seasonal_learning
-from residual_function_1 import residual_learning_1
+from residual_function import residual_learning
 from sklearn.metrics import accuracy_score,confusion_matrix,r2_score,f1_score
 from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.tsa import stattools
@@ -35,61 +35,49 @@ residual=res.resid
 #plt.show()
 
 
+trend_test_pred,r2_trend_test,MSE_trend_test = trend_learning(trend,test_size)
+seasonal_test_pred,r2_seasonal_test, seasonal_train_MSEloss, seasonal_valid_MSEloss = seasonal_learning(seasonal,test_size)
+residual_test_pred,r2_residual_test = residual_learning_1(residual,test_size,data_np)
 
-trend_run = 0
-seasonal_run = 1
-residual_run = 0
-postproc = 0
+total_test_pred=trend_test_pred+seasonal_test_pred+residual_test_pred 
 
-if trend_run == 1:
-    trend_test_pred,r2_trend_test,MSE_trend_test = trend_learning(trend,test_size)
-if seasonal_run == 1:
-    seasonal_test_pred,r2_seasonal_test, seasonal_train_MSEloss, seasonal_valid_MSEloss = seasonal_learning(seasonal,test_size)
-if residual_run == 1:
-    residual_test_pred,r2_residual_test = residual_learning_1(residual,test_size,data_np)
+total_pred_list=total_test_pred.reshape(-1,).tolist()
+total_pred_scale=[]
+for i in range(len(total_test_pred)):
+    total_pred_scale.append(max(total_pred_list[i],0))
+total_pred_scale = np.array(total_pred_scale)
 
+test_grtruth=rain_data[-test_size:]
 
-if postproc == 1:
-    
-    total_test_pred=trend_test_pred+seasonal_test_pred+residual_test_pred 
-    
-    total_pred_list=total_test_pred.reshape(-1,).tolist()
-    total_pred_scale=[]
-    for i in range(len(total_test_pred)):
-        total_pred_scale.append(max(total_pred_list[i],0))
-    total_pred_scale = np.array(total_pred_scale)
-       
-    test_grtruth=rain_data[-test_size:]
-    
-    plt.figure(10)
-    plt.plot(test_grtruth)
-    plt.plot(total_pred_scale)
-    
-    plt.figure(11)
-    plt.scatter(total_pred_scale, test_grtruth,marker = '+', color = 'blue', s = 40)
-    plt.plot(np.array([0,175]),np.array([0,175]))
-    plt.xlabel('pred')
-    plt.ylabel('true')
-    
-    print('Total Test set R2:', r2_score(test_grtruth,total_pred_scale))
-    
-    def class_result(low,up,true,pred):
-        true_class=np.zeros((len(true),))
-        pred_class=np.zeros((len(pred),))
-        for i in range(len(true)):
-            if true[i]>low and true[i]<up:
-                true_class[i]=1
-            elif true[i]>up  or true[i]==up:
-                true_class[i]=2
-        for i in range(len(pred)):
-            if pred[i]>low and pred[i]<up:
-                pred_class[i]=1
-            elif pred[i]>up or true[i]==up:
-                pred_class[i]=2
-        return true_class,pred_class       
-    
-    true_class, pred_class = class_result(3.5,31.6,test_grtruth,total_pred_scale)
-    
-    print('Total Test set accuracy:',accuracy_score(true_class,pred_class))
-    print('Total Test set confusion matrix:',confusion_matrix(true_class,pred_class))
-    print('Total Test set f1_score:',f1_score(true_class,pred_class,average='micro'))
+plt.figure(10)
+plt.plot(test_grtruth)
+plt.plot(total_pred_scale)
+
+plt.figure(11)
+plt.scatter(total_pred_scale, test_grtruth,marker = '+', color = 'blue', s = 40)
+plt.plot(np.array([0,175]),np.array([0,175]))
+plt.xlabel('pred')
+plt.ylabel('true')
+
+print('Total Test set R2:', r2_score(test_grtruth,total_pred_scale))
+
+def class_result(low,up,true,pred):
+    true_class=np.zeros((len(true),))
+    pred_class=np.zeros((len(pred),))
+    for i in range(len(true)):
+        if true[i]>low and true[i]<up:
+            true_class[i]=1
+        elif true[i]>up  or true[i]==up:
+            true_class[i]=2
+    for i in range(len(pred)):
+        if pred[i]>low and pred[i]<up:
+            pred_class[i]=1
+        elif pred[i]>up or true[i]==up:
+            pred_class[i]=2
+    return true_class,pred_class       
+
+true_class, pred_class = class_result(3.5,31.6,test_grtruth,total_pred_scale)
+
+print('Total Test set accuracy:',accuracy_score(true_class,pred_class))
+print('Total Test set confusion matrix:',confusion_matrix(true_class,pred_class))
+print('Total Test set f1_score:',f1_score(true_class,pred_class,average='micro'))
